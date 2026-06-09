@@ -1,53 +1,42 @@
-name: Publish Docker image
+name: Build and Push to GHCR
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g. 1.8.0)'
-        required: true
+  push:
+    branches: [main]
 
-concurrency:
-  group: docker-publish
-  cancel-in-progress: false
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  docker:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+      packages: write  # 关键：允许写入 GHCR
+    
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Download Camoufox
+        run: |          
+          mkdir -p dist
+          VERSION="135.0.1-beta.24"  # 固定版本，避免自动检测失败
+          curl -L "https://github.com/daijro/camoufox/releases/download/v${VERSION}/camoufox-${VERSION}-linux-x86_64.tar.gz" | tar -xz -C dist/
+          curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o dist/yt-dlp && chmod +x dist/yt-dlp
 
-      - name: Set version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-          else
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-          fi
-
-      - uses: docker/login-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}  # 自动提供
 
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/setup-qemu-action@v3
-
-      - uses: docker/build-push-action@v6
+      - name: Build and push
+        uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.ci
-          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/jo-inc/camofox-browser:${{ env.VERSION }}
-            ghcr.io/jo-inc/camofox-browser:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/${{ github.repository_owner }}/camofox-browser:latest
+            ghcr.io/${{ github.repository_owner }}/camofox-browser:${{ github.sha }}
